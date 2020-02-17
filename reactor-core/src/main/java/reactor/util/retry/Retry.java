@@ -30,7 +30,7 @@ import reactor.core.scheduler.Schedulers;
 import reactor.util.annotation.Nullable;
 
 /**
- * Utilities around {@link Flux#retry(Builder) retries} (builder to configure retries,
+ * Utilities around {@link Flux#retry(Supplier)}  retries} (builder to configure retries,
  * retry {@link RetrySignal signal}, etc...)
  *
  * @author Simon Baslé
@@ -40,7 +40,7 @@ public class Retry {
 	static final Duration MAX_BACKOFF = Duration.ofMillis(Long.MAX_VALUE);
 
 	/**
-	 * State for a {@link Flux#retry(Builder) Flux retry} or {@link reactor.core.publisher.Mono#retry(Builder) Mono retry}.
+	 * State for a {@link Flux#retry(Supplier) Flux retry} or {@link reactor.core.publisher.Mono#retry(Supplier) Mono retry}.
 	 * The state is passed to the retry function inside a publisher and gives information about the
 	 * {@link #failure()} that potentially triggers a retry, as well as two indexes: the number of
 	 * errors that happened so far (and were retried) and the same number, but only taking into account
@@ -95,7 +95,7 @@ public class Retry {
 	 * @see Builder#minBackoff(Duration)
 	 */
 	public static Builder backoff(long maxAttempts, Duration minBackoff) {
-		return new Builder(maxAttempts, t -> true, false, minBackoff, MAX_BACKOFF, 0.5d, Schedulers.parallel());
+		return new Builder(true, maxAttempts, t -> true, false, minBackoff, MAX_BACKOFF, 0.5d, Schedulers.parallel());
 	}
 
 	/**
@@ -106,13 +106,13 @@ public class Retry {
 	 * @see Builder#maxAttempts(long)
 	 */
 	public static Builder max(long max) {
-		return new Builder(max, t -> true, false, Duration.ZERO, MAX_BACKOFF, 0d, null);
+		return new Builder(false, max, t -> true, false, Duration.ZERO, MAX_BACKOFF, 0d, null);
 	}
 
 	/**
 	 * A builder for a retry strategy with fine grained options.
 	 * <p>
-	 * By default the strategy is simple: rrors that match the {@link #throwablePredicate(Predicate)}
+	 * By default the strategy is simple: errors that match the {@link #throwablePredicate(Predicate)}
 	 * (by default all) are retried up to {@link #maxAttempts(long)} times.
 	 * <p>
 	 * If one of the {@link #minBackoff(Duration)}, {@link #maxBackoff(Duration)}, {@link #jitter(double)}
@@ -140,24 +140,38 @@ public class Retry {
 		final Scheduler backoffScheduler;
 
 		final long                         maxAttempts;
-		final Predicate<? super Throwable> throwablePredicate;
+		final Predicate<Throwable>         throwablePredicate;
 		final boolean                      isTransientErrors;
+		final boolean                      isConfiguredForBackoff;
 
 		/**
 		 * Copy constructor.
 		 */
-		Builder(long max,
-				Predicate<? super Throwable> throwablePredicate,
+		Builder(boolean isConfiguredForBackoff,
+				long max,
+				Predicate<? super Throwable> aThrowablePredicate,
 				boolean isTransientErrors,
 				Duration minBackoff, Duration maxBackoff, double jitterFactor,
 				@Nullable Scheduler backoffScheduler) {
+			this.isConfiguredForBackoff = isConfiguredForBackoff;
 			this.maxAttempts = max;
-			this.throwablePredicate = throwablePredicate;
+			this.throwablePredicate = aThrowablePredicate::test; //massaging type
 			this.isTransientErrors = isTransientErrors;
 			this.minBackoff = minBackoff;
 			this.maxBackoff = maxBackoff;
 			this.jitterFactor = jitterFactor;
 			this.backoffScheduler = backoffScheduler;
+		}
+
+		/**
+		 * Is this {@link Retry.Builder} configured for backing off (ie. have any of the
+		 * {@link #minBackoff(Duration)}, {@link #maxBackoff(Duration)}, {@link #jitter(double)}
+		 * or {@link #scheduler(Scheduler)} methods been called)?
+		 *
+		 * @return true if builder is going to build a backoff function, false for a simple retry function
+		 */
+		public boolean isConfiguredForBackoff() {
+			return this.isConfiguredForBackoff;
 		}
 
 		/**
@@ -170,6 +184,7 @@ public class Retry {
 		 */
 		public Builder maxAttempts(long maxAttempts) {
 			return new Builder(
+					this.isConfiguredForBackoff,
 					maxAttempts,
 					this.throwablePredicate,
 					this.isTransientErrors,
@@ -189,6 +204,7 @@ public class Retry {
 		 */
 		public Builder throwablePredicate(Predicate<? super Throwable> predicate) {
 			return new Builder(
+					this.isConfiguredForBackoff,
 					this.maxAttempts,
 					Objects.requireNonNull(predicate, "predicate"),
 					this.isTransientErrors,
@@ -217,12 +233,15 @@ public class Retry {
 		 * currently in place {@link Predicate} (usually deriving from the old predicate).
 		 * @return the builder for further configuration
 		 */
-		public Builder throwablePredicate(
-				Function<Predicate<? super Throwable>, Predicate<? super Throwable>> predicateAdjuster) {
+		public Builder throwablePredicateModifiedWith(
+				Function<Predicate<Throwable>, Predicate<? super Throwable>> predicateAdjuster) {
 			Objects.requireNonNull(predicateAdjuster, "predicateAdjuster");
+			Predicate<? super Throwable> newPredicate = Objects.requireNonNull(predicateAdjuster.apply(this.throwablePredicate),
+					"predicateAdjuster must return a new predicate");
 			return new Builder(
+					this.isConfiguredForBackoff,
 					this.maxAttempts,
-					predicateAdjuster.apply(throwablePredicate),
+					newPredicate,
 					this.isTransientErrors,
 					this.minBackoff,
 					this.maxBackoff,
@@ -246,6 +265,7 @@ public class Retry {
 		 */
 		public Builder transientErrors(boolean isTransientErrors) {
 			return new Builder(
+					this.isConfiguredForBackoff,
 					this.maxAttempts,
 					this.throwablePredicate,
 					isTransientErrors,
@@ -254,8 +274,6 @@ public class Retry {
 					this.jitterFactor,
 					this.backoffScheduler);
 		}
-
-		//all backoff specific methods should set the default scheduler if needed
 
 		/**
 		 * Set the minimum {@link Duration} for the first backoff. This method switches to an
@@ -267,13 +285,14 @@ public class Retry {
 		 */
 		public Builder minBackoff(Duration minBackoff) {
 			return new Builder(
+					true,
 					this.maxAttempts,
 					this.throwablePredicate,
 					this.isTransientErrors,
 					Objects.requireNonNull(minBackoff, "minBackoff"),
 					this.maxBackoff,
 					this.jitterFactor,
-					this.backoffScheduler == null ? Schedulers.parallel() : this.backoffScheduler);
+					this.backoffScheduler);
 		}
 
 		/**
@@ -286,13 +305,14 @@ public class Retry {
 		 */
 		public Builder maxBackoff(Duration maxBackoff) {
 			return new Builder(
+					true,
 					this.maxAttempts,
 					this.throwablePredicate,
 					this.isTransientErrors,
 					this.minBackoff,
 					Objects.requireNonNull(maxBackoff, "maxBackoff"),
 					this.jitterFactor,
-					this.backoffScheduler == null ? Schedulers.parallel() : this.backoffScheduler);
+					this.backoffScheduler);
 		}
 
 		/**
@@ -306,13 +326,14 @@ public class Retry {
 		 */
 		public Builder jitter(double jitterFactor) {
 			return new Builder(
+					true,
 					this.maxAttempts,
 					this.throwablePredicate,
 					this.isTransientErrors,
 					this.minBackoff,
 					this.maxBackoff,
 					jitterFactor,
-					this.backoffScheduler == null ? Schedulers.parallel() : this.backoffScheduler);
+					this.backoffScheduler);
 		}
 
 		/**
@@ -326,6 +347,7 @@ public class Retry {
 		 */
 		public Builder scheduler(Scheduler backoffScheduler) {
 			return new Builder(
+					true,
 					this.maxAttempts,
 					this.throwablePredicate,
 					this.isTransientErrors,
@@ -340,11 +362,12 @@ public class Retry {
 		 *
 		 * @return the retry {@link Function} based on a companion flux of {@link RetrySignal}
 		 */
+		@Override
 		public Function<Flux<RetrySignal>, Publisher<?>> get() {
-			if (minBackoff == Duration.ZERO && maxBackoff == MAX_BACKOFF && jitterFactor == 0d && backoffScheduler == null) {
-				return new SimpleRetryFunction(this);
+			if (isConfiguredForBackoff) {
+				return new ExponentialBackoffFunction(this);
 			}
-			return new ExponentialBackoffFunction(this);
+			return new SimpleRetryFunction(this);
 		}
 	}
 

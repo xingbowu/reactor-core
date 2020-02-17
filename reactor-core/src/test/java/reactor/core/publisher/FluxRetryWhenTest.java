@@ -766,6 +766,22 @@ public class FluxRetryWhenTest {
 	}
 
 	@Test
+	public void simpleFunctionTransient() {
+		Flux<Integer> source = transientErrorSource();
+
+		Function<Flux<Retry.RetrySignal>, Publisher<?>> retryFunction =
+				Retry.max(2)
+				     .transientErrors(true)
+				     .get();
+
+		new FluxRetryWhen<>(source, retryFunction)
+				.as(StepVerifier::create)
+				.expectNext(3, 4, 7, 8, 11, 12)
+				.expectComplete()
+				.verify(Duration.ofSeconds(2));
+	}
+
+	@Test
 	public void backoffFunctionTransientAndThenDoesntRemoveTransientNature() {
 		Flux<Integer> source = transientErrorSource();
 
