@@ -3787,7 +3787,7 @@ public abstract class Mono<T> implements CorePublisher<T> {
 	 * minimum delay even taking jitter into account.
 	 * @param maxBackoff the maximum delay to apply despite exponential growth and jitter.
 	 * @return a {@link Mono} that retries on onError with exponentially growing randomized delays between retries.
-	 * @deprecated use {@link #retry(Retry.Builder)} with a {@link Retry#backoff(long, Duration)} base
+	 * @deprecated use {@link #retry(Supplier)} with a {@link Retry#backoff(long, Duration)} base
 	 */
 	@Deprecated
 	public final Mono<T> retryBackoff(long numRetries, Duration firstBackoff, Duration maxBackoff) {
@@ -3827,7 +3827,7 @@ public abstract class Mono<T> implements CorePublisher<T> {
 	 * @param maxBackoff the maximum delay to apply despite exponential growth and jitter.
 	 * @param backoffScheduler the {@link Scheduler} on which the delays and subsequent attempts are executed.
 	 * @return a {@link Mono} that retries on onError with exponentially growing randomized delays between retries.
-	 * @deprecated use {@link #retry(Retry.Builder)} with a {@link Retry#backoff(long, Duration)} base
+	 * @deprecated use {@link #retry(Supplier)} with a {@link Retry#backoff(long, Duration)} base
 	 */
 	@Deprecated
 	public final Mono<T> retryBackoff(long numRetries, Duration firstBackoff, Duration maxBackoff, Scheduler backoffScheduler) {
@@ -3867,7 +3867,7 @@ public abstract class Mono<T> implements CorePublisher<T> {
 	 * @param maxBackoff the maximum delay to apply despite exponential growth and jitter.
 	 * @param jitterFactor the jitter percentage (as a double between 0.0 and 1.0).
 	 * @return a {@link Mono} that retries on onError with exponentially growing randomized delays between retries.
-	 * @deprecated use {@link #retry(Retry.Builder)} with a {@link Retry#backoff(long, Duration)} base
+	 * @deprecated use {@link #retry(Supplier)} with a {@link Retry#backoff(long, Duration)} base
 	 */
 	@Deprecated
 	public final Mono<T> retryBackoff(long numRetries, Duration firstBackoff, Duration maxBackoff, double jitterFactor) {
@@ -3910,7 +3910,7 @@ public abstract class Mono<T> implements CorePublisher<T> {
 	 * @param backoffScheduler the {@link Scheduler} on which the delays and subsequent attempts are executed.
 	 * @param jitterFactor the jitter percentage (as a double between 0.0 and 1.0).
 	 * @return a {@link Mono} that retries on onError with exponentially growing randomized delays between retries.
-	 * @deprecated use {@link #retry(Retry.Builder)} with a {@link Retry#backoff(long, Duration)} base
+	 * @deprecated use {@link #retry(Supplier)} with a {@link Retry#backoff(long, Duration)} base
 	 */
 	@Deprecated
 	public final Mono<T> retryBackoff(long numRetries, Duration firstBackoff, Duration maxBackoff, double jitterFactor, Scheduler backoffScheduler) {
